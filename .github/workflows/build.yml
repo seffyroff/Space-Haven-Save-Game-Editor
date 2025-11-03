@@ -43,6 +43,7 @@ jobs:
       
       - name: Build binary
         working-directory: crossplatform
+        shell: bash
         run: |
           python -m PyInstaller --name="SpaceHavenEditor" \
             --onefile --windowed \
