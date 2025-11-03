@@ -1,92 +1,174 @@
-# 🚀 Space Haven Save Editor
+# Space Haven Save Game Editor
 
-Take full control of your Space Haven adventure!
+A cross-platform desktop application for editing Space Haven save game files.
 
-This save editor lets you modify important aspects of your Space Haven save files, including credits, prestige points, ship sizes, crew members, and storage items. Built fresh from scratch to support Space Haven Alpha 20 — no outdated tools here.
+## Features
 
----
+- **Global Save Settings** - Edit game-wide settings and preferences
+- **Ship Management** - View and modify ship configurations
+- **Crew Management** - Full editing capabilities for all crew members:
+  - Attributes (Strength, Endurance, Intelligence, etc.)
+  - Skills (all skill levels)
+  - Traits (add/remove character traits)
+  - Conditions (view and remove conditions)
+  - Relationships (edit relationship values between crew members)
+  - Create new crew members
+- **Storage Management** - Edit storage containers and items
+- **Ship Size Modification** - Change ship dimensions
 
-## 📋 Features
+## Platforms
 
-- 💰 **Global Save Settings**
-  - Edit in-game credits.
-  - Adjust Exodus Fleet prestige points.
-  - Enable or disable Sandbox Mode.
+- **Linux** (x86_64)
+- **macOS** (Intel and Apple Silicon)
+- **Windows** (x86_64)
 
-- 🚀 **Ship Management**
-  - View and select ships from your save file.
-  - Edit ship dimensions (Width x Height grid squares).
-  - Safely expand or resize ships (up to 8x8 recommended).
+## Quick Start
 
-- 👨‍🚀 **Detailed Crew Editing**
-  - Add new crew members based on existing templates.
-  - Modify attributes (Bravery, Zest, etc.).
-  - Adjust skill levels (Mining, Botany, Piloting, etc.).
-  - Add or remove traits.
-  - Remove conditions (injuries, status effects).
-  - Edit crew relationships (Friendship, Attraction, Compatibility).
-  - Quick set all attributes or skills with one click.
+### Download Pre-built Binaries
 
-- 📦 **Storage Management**
-  - View and manage storage containers on ships.
-  - Add, edit, or remove items inside storage units.
-  - Adjust item quantities or delete entire item stacks.
+Download the latest release from the [Releases](https://github.com/seffyroff/Space-Haven-Save-Game-Editor/releases) page. Binaries are available for all supported platforms.
 
-- 💾 **Automatic Backups (Optional)**
-  - Automatically create timestamped backup folders when opening saves.
-  - Manual backup still strongly recommended.
+**Linux:**
+```bash
+chmod +x SpaceHavenEditor
+./SpaceHavenEditor
+```
 
-- 🎮 **Simple and Clear Interface**
-  - Organized tabs for Ships, Crew, and Storage.
-  - Easy-to-use editing with dropdowns and quick entry.
+**macOS:**
+```bash
+chmod +x SpaceHavenEditor
+./SpaceHavenEditor
+```
 
-- 🔧 **Built for Space Haven Alpha 20**
----
+**Windows:**
+Double-click `SpaceHavenEditor.exe`
 
-## 📦 Installation
+### Build from Source
 
-1. Go to the [Latest Release](https://github.com/moragar360/Space-Haven-Save-Game-Editor/releases/latest).
-2. Download the latest `.zip` file.
-3. Extract the ZIP contents to a folder of your choice.
-4. Run `SpaceHavenEditor.exe` to launch the application.
+#### Prerequisites
 
-> ⚡ No installation needed — it's a standalone executable!
+- Python 3.11 or 3.12 (PyInstaller has compatibility issues with Python 3.13)
+- pip
 
----
+#### Linux/macOS
 
-## 🛠️ Usage
+```bash
+cd crossplatform
+./build.sh
+```
 
-1. Launch the `SpaceHavenEditor.exe` application.
-2. Go to **File** -> **Open**.
-3. Navigate to your save game directory: typically Steam\steamapps\common\SpaceHaven\savegames[YourSaveGameName]\save\
-4. Select the `game` file (no extension).
-5. Choose a ship from the "Selected Ship" dropdown.
-6. Click on **Crew** or **Storage** tabs to begin editing.
-7. Modify values as needed:
-- Press **Enter** or change rows to commit grid edits.
-- Use the "Update Globals (Memory)" button to apply changes to global values.
-8. After making changes, go to **File** -> **Save**.
-9. Launch Space Haven and load your save to see your edits!
+The binary will be created in `crossplatform/dist/SpaceHavenEditor`
 
-> 🔥 Tip: Always make manual backups in addition to using the automatic backup feature.
+#### Windows
 
----
+```bash
+cd crossplatform
+build.bat
+```
 
-## 📜 License
+The binary will be created in `crossplatform/dist/SpaceHavenEditor.exe`
 
-This project is licensed under the [MIT License](LICENSE).
+#### Manual Build
 
----
+```bash
+cd crossplatform
+python3.12 -m venv build_venv
+build_venv/bin/python -m pip install pyinstaller lxml PySide6
+build_venv/bin/python -m PyInstaller --name="SpaceHavenEditor" \
+  --onefile --windowed \
+  --hidden-import=lxml --hidden-import=PySide6.QtCore \
+  --hidden-import=PySide6.QtGui --hidden-import=PySide6.QtWidgets \
+  main.py
+```
 
-## 🧩 Changelog
+### Run from Source (Development)
 
-### v1.0.1 (Current Release)
-- Initial public release.
-- Fixed CTD (Crash to Desktop) issue when loading certain save files.
-- Improved save file handling.
-- Added automatic backup option.
-- Stable support for Space Haven Alpha 20 saves.
+```bash
+cd crossplatform
+pip install -r requirements.txt
+python -m crossplatform.main
+```
 
----
+## Project Structure
 
-Mad by [Moragar](https://github.com/moragar360)
+```
+/
+├── crossplatform/          # Cross-platform Python/PySide6 implementation
+│   ├── main.py            # Main application and UI
+│   ├── models.py          # Data models
+│   ├── save_loader.py     # Save file loading/saving
+│   ├── id_collections.py  # ID mappings
+│   └── build.sh           # Build script (Linux/macOS)
+├── legacy-vb/             # Original VB.NET code (archived)
+├── .github/workflows/     # GitHub Actions for automated builds
+└── README.md              # This file
+```
+
+## Automated Builds
+
+This project uses GitHub Actions to automatically build binaries for all platforms when:
+- A tag is pushed (format: `v*`)
+- Manual workflow dispatch
+- Pull requests to main (for testing)
+
+Binaries are automatically attached to releases when tags are pushed.
+
+## Usage
+
+1. **Open a Save File**: Use File → Open to load your Space Haven save game
+2. **Backup**: The application automatically creates backups (`.bak` files)
+3. **Edit Settings**: Navigate through the tabs to edit:
+   - Global settings
+   - Ship configurations
+   - Crew attributes, skills, traits, conditions, and relationships
+   - Storage containers and items
+4. **Save**: Use File → Save to write changes to disk
+
+## Technical Details
+
+### Technology Stack
+
+- **Python 3.11/3.12** - Programming language
+- **PySide6** - Cross-platform GUI framework
+- **lxml** - XML parsing and manipulation
+- **PyInstaller** - Binary packaging
+
+### Save File Format
+
+Space Haven saves are XML files. The editor:
+- Parses the XML structure
+- Allows editing of game data
+- Maintains XML structure and formatting
+- Creates backups before modification
+
+## Development
+
+### Requirements
+
+Development dependencies are listed in `crossplatform/requirements.txt`:
+- PySide6==6.7.2
+- lxml==5.2.1
+
+### Code Structure
+
+- `main.py` - Main window, UI components, and event handlers
+- `models.py` - Data classes for save game structures
+- `save_loader.py` - XML parsing, save loading, and data modification functions
+- `id_collections.py` - Mappings between game IDs and human-readable names
+
+## Legacy Code
+
+The original VB.NET/WPF implementation has been moved to `legacy-vb/` for reference purposes. The new cross-platform implementation provides the same functionality and works on all major platforms.
+
+## License
+
+See [LICENSE](LICENSE) file for details.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues or pull requests.
+
+## Notes
+
+- **Python 3.13 Compatibility**: PyInstaller 6.16.0 has known issues with Python 3.13's isolation mechanism. Use Python 3.11 or 3.12 for building binaries.
+- **Backups**: Always back up your save files before editing. The application creates automatic backups, but it's good practice to keep your own backups as well.
