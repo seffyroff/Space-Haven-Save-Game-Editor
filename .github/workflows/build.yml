@@ -43,18 +43,7 @@ jobs:
       
       - name: Build binary
         working-directory: crossplatform
-        shell: bash
-        run: |
-          python -m PyInstaller --name="SpaceHavenEditor" \
-            --onefile --windowed \
-            --hidden-import=lxml \
-            --hidden-import=lxml.etree \
-            --hidden-import=lxml._elementpath \
-            --hidden-import=PySide6.QtCore \
-            --hidden-import=PySide6.QtGui \
-            --hidden-import=PySide6.QtWidgets \
-            --noconfirm \
-            main.py
+        run: python -m PyInstaller --name="SpaceHavenEditor" --onefile --windowed --hidden-import=lxml --hidden-import=lxml.etree --hidden-import=lxml._elementpath --hidden-import=PySide6.QtCore --hidden-import=PySide6.QtGui --hidden-import=PySide6.QtWidgets --noconfirm main.py
       
       - name: Upload Linux artifact
         if: matrix.os == 'ubuntu-latest'
