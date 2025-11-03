@@ -16,6 +16,17 @@ Setup
 Run
 - python -m crossplatform.main
 
+Build Standalone Binary
+- Install build dependencies: pip install -r requirements-build.txt
+- Run build script: ./build.sh (Linux/macOS) or build.bat (Windows)
+- Binary will be in: dist/SpaceHavenEditor (or .exe on Windows)
+
+Note: If using Python 3.13, you may encounter PyInstaller isolation issues.
+  Options:
+  1. Use Python 3.11 or 3.12 for building
+  2. Set environment variable: export PYINSTALLER_DISABLE_ISOLATION=1
+  3. Try building with the spec file: pyinstaller SpaceHavenEditor.spec
+
 Usage
 - File -> Open: select the Space Haven save file named "game" in your save folder.
 - Update Global Settings: updates credits, sandbox, prestige in memory. Use File -> Save to persist.
