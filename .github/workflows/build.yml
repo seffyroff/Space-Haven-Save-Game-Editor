@@ -82,14 +82,36 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: SpaceHavenEditor-*
+          merge-multiple: false
+      
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          # Linux binary
+          if [ -f "artifacts/SpaceHavenEditor-Linux/SpaceHavenEditor" ]; then
+            cp artifacts/SpaceHavenEditor-Linux/SpaceHavenEditor release/SpaceHavenEditor-Linux
+            chmod +x release/SpaceHavenEditor-Linux
+          fi
+          # macOS binary
+          if [ -f "artifacts/SpaceHavenEditor-macOS/SpaceHavenEditor" ]; then
+            cp artifacts/SpaceHavenEditor-macOS/SpaceHavenEditor release/SpaceHavenEditor-macOS
+            chmod +x release/SpaceHavenEditor-macOS
+          fi
+          # Windows binary
+          if [ -f "artifacts/SpaceHavenEditor-Windows/SpaceHavenEditor.exe" ]; then
+            cp artifacts/SpaceHavenEditor-Windows/SpaceHavenEditor.exe release/SpaceHavenEditor-Windows.exe
+          fi
+          echo "Release files prepared:"
+          ls -lh release/
       
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/SpaceHavenEditor-Linux/SpaceHavenEditor
-            artifacts/SpaceHavenEditor-macOS/SpaceHavenEditor
-            artifacts/SpaceHavenEditor-Windows/SpaceHavenEditor.exe
+            release/SpaceHavenEditor-Linux
+            release/SpaceHavenEditor-macOS
+            release/SpaceHavenEditor-Windows.exe
           draft: false
           prerelease: false
           generate_release_notes: true
