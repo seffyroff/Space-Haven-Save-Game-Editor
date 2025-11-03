@@ -2,8 +2,13 @@ from __future__ import annotations
 from typing import List, Optional
 from lxml import etree
 
-from .models import SaveData, Ship, Character, DataProp, RelationshipInfo, StorageContainer, StorageItem
-from .id_collections import DefaultSkillIDs, DefaultTraitIDs, DefaultAttributeIDs, DefaultStorageIDs, ConditionsIDs
+try:
+    from .models import SaveData, Ship, Character, DataProp, RelationshipInfo, StorageContainer, StorageItem
+    from .id_collections import DefaultSkillIDs, DefaultTraitIDs, DefaultAttributeIDs, DefaultStorageIDs, ConditionsIDs
+except ImportError:
+    # Fallback for when running as standalone (PyInstaller)
+    from models import SaveData, Ship, Character, DataProp, RelationshipInfo, StorageContainer, StorageItem
+    from id_collections import DefaultSkillIDs, DefaultTraitIDs, DefaultAttributeIDs, DefaultStorageIDs, ConditionsIDs
 
 
 def load_save(path: str) -> SaveData:

@@ -54,7 +54,11 @@ except ImportError:
     # Fallback for when running as standalone (PyInstaller)
     import sys
     import os
-    sys.path.insert(0, os.path.dirname(__file__))
+    # Add current directory to path for PyInstaller
+    if hasattr(sys, '_MEIPASS'):
+        # PyInstaller sets _MEIPASS to the temp folder
+        sys.path.insert(0, sys._MEIPASS)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from models import SaveData, Ship, StorageContainer, Character, DataProp
     from save_loader import (
         load_save,
