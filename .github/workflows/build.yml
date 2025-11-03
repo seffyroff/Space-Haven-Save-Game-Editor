@@ -55,21 +55,28 @@ jobs:
             --noconfirm \
             main.py
       
-      - name: Determine binary path
-        id: binary_path
-        shell: bash
-        run: |
-          if [ "${{ matrix.os }}" == "windows-latest" ]; then
-            echo "path=crossplatform/dist/SpaceHavenEditor.exe" >> $GITHUB_OUTPUT
-          else
-            echo "path=crossplatform/dist/SpaceHavenEditor" >> $GITHUB_OUTPUT
-          fi
-      
-      - name: Upload artifact
+      - name: Upload Linux artifact
+        if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact-name }}
-          path: ${{ steps.binary_path.outputs.path }}
+          path: crossplatform/dist/SpaceHavenEditor
+          retention-days: 30
+      
+      - name: Upload macOS artifact
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: crossplatform/dist/SpaceHavenEditor
+          retention-days: 30
+      
+      - name: Upload Windows artifact
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: crossplatform/dist/SpaceHavenEditor.exe
           retention-days: 30
   
   release:
