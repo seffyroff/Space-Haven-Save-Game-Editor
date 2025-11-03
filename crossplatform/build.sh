@@ -1,30 +1,21 @@
 #!/bin/bash
 # Build script for Space Haven Save Editor standalone binary
+# Uses Python 3.12 venv to avoid Python 3.13 compatibility issues with PyInstaller
 
 set -e
 
-# Create venv if it doesn't exist
-if [ ! -d "venv" ]; then
-    echo "Creating virtual environment..."
-    python -m venv venv
-fi
-
-# Activate venv
-echo "Activating virtual environment..."
-source venv/bin/activate
+echo "Creating Python 3.12 virtual environment..."
+rm -rf build_venv
+python3.12 -m venv build_venv
 
 echo "Installing build dependencies..."
-pip install -q -r requirements-build.txt
+build_venv/bin/python -m pip install --upgrade pip -q
+build_venv/bin/python -m pip install -q pyinstaller lxml PySide6
 
 echo "Building standalone binary with PyInstaller..."
-# Note: If you encounter isolation errors with Python 3.13, try:
-# export PYINSTALLER_DISABLE_ISOLATION=1
-# or use Python 3.11/3.12 instead
-
-pyinstaller --name="SpaceHavenEditor" \
+build_venv/bin/python -m PyInstaller --name="SpaceHavenEditor" \
     --onefile \
     --windowed \
-    --add-data="README.md:." \
     --hidden-import=lxml \
     --hidden-import=lxml.etree \
     --hidden-import=lxml._elementpath \
@@ -35,7 +26,8 @@ pyinstaller --name="SpaceHavenEditor" \
     main.py
 
 echo ""
-echo "Build complete! Binary should be in: dist/SpaceHavenEditor"
+echo "Build complete! Binary location:"
+ls -lh dist/SpaceHavenEditor
 echo ""
 echo "To test: ./dist/SpaceHavenEditor"
 

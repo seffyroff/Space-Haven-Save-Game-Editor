@@ -30,25 +30,50 @@ from PySide6.QtWidgets import (
     QGroupBox,
 )
 
-from .models import SaveData, Ship, StorageContainer, Character, DataProp
-from .save_loader import (
-    load_save,
-    save_to_disk,
-    load_storage_containers,
-    update_globals_in_memory,
-    add_item_to_container,
-    delete_item_from_container,
-    update_item_quantity,
-    update_ship_size,
-    update_character_attribute,
-    update_character_skill,
-    add_character_trait,
-    remove_character_trait,
-    remove_character_condition,
-    update_character_relationship,
-    create_new_crew_member,
-)
-from .id_collections import DefaultStorageIDs, DefaultAttributeIDs, DefaultSkillIDs, DefaultTraitIDs
+try:
+    from .models import SaveData, Ship, StorageContainer, Character, DataProp
+    from .save_loader import (
+        load_save,
+        save_to_disk,
+        load_storage_containers,
+        update_globals_in_memory,
+        add_item_to_container,
+        delete_item_from_container,
+        update_item_quantity,
+        update_ship_size,
+        update_character_attribute,
+        update_character_skill,
+        add_character_trait,
+        remove_character_trait,
+        remove_character_condition,
+        update_character_relationship,
+        create_new_crew_member,
+    )
+    from .id_collections import DefaultStorageIDs, DefaultAttributeIDs, DefaultSkillIDs, DefaultTraitIDs
+except ImportError:
+    # Fallback for when running as standalone (PyInstaller)
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(__file__))
+    from models import SaveData, Ship, StorageContainer, Character, DataProp
+    from save_loader import (
+        load_save,
+        save_to_disk,
+        load_storage_containers,
+        update_globals_in_memory,
+        add_item_to_container,
+        delete_item_from_container,
+        update_item_quantity,
+        update_ship_size,
+        update_character_attribute,
+        update_character_skill,
+        add_character_trait,
+        remove_character_trait,
+        remove_character_condition,
+        update_character_relationship,
+        create_new_crew_member,
+    )
+    from id_collections import DefaultStorageIDs, DefaultAttributeIDs, DefaultSkillIDs, DefaultTraitIDs
 
 
 class MainWindow(QMainWindow):
