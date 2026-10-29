@@ -1,10 +1,11 @@
 from __future__ import annotations
 import sys
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPoint
 from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QMenu
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -28,10 +29,14 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QTextEdit,
     QGroupBox,
+    QInputDialog,
+    QScrollArea,
+    QSplitter,
 )
 
 try:
-    from .models import SaveData, Ship, StorageContainer, Character, DataProp
+    from .models import SaveData, Ship, StorageContainer, Character, DataProp, ShipObject
+    from .ship_view import ShipViewWidget
     from .save_loader import (
         load_save,
         save_to_disk,
@@ -41,6 +46,14 @@ try:
         delete_item_from_container,
         update_item_quantity,
         update_ship_size,
+        update_ship_name,
+        update_ship_owner,
+        load_ship_objects,
+        get_ship_grid_size,
+        update_ship_object_position,
+        update_ship_object_properties,
+        remove_ship_object,
+        create_ship_object,
         update_character_attribute,
         update_character_skill,
         add_character_trait,
@@ -59,7 +72,8 @@ except ImportError:
         # PyInstaller sets _MEIPASS to the temp folder
         sys.path.insert(0, sys._MEIPASS)
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from models import SaveData, Ship, StorageContainer, Character, DataProp
+    from models import SaveData, Ship, StorageContainer, Character, DataProp, ShipObject
+    from ship_view import ShipViewWidget
     from save_loader import (
         load_save,
         save_to_disk,
@@ -69,6 +83,14 @@ except ImportError:
         delete_item_from_container,
         update_item_quantity,
         update_ship_size,
+        update_ship_name,
+        update_ship_owner,
+        load_ship_objects,
+        get_ship_grid_size,
+        update_ship_object_position,
+        update_ship_object_properties,
+        remove_ship_object,
+        create_ship_object,
         update_character_attribute,
         update_character_skill,
         add_character_trait,
@@ -89,6 +111,13 @@ class MainWindow(QMainWindow):
         self.save: Optional[SaveData] = None
         self.current_containers: list[StorageContainer] = []
         self.backup_enabled: bool = False
+        
+        # Initialize asset loader early
+        try:
+            from .asset_loader import get_asset_loader
+            get_asset_loader()
+        except Exception:
+            pass  # Will fail gracefully if assets not available
 
         self._init_menu()
 
@@ -250,6 +279,245 @@ class MainWindow(QMainWindow):
         
         self.tabs.addTab(crew_tab, "Crew")
 
+        # Ship Editor tab
+        ship_editor_tab = QWidget()
+        ship_editor_layout = QVBoxLayout(ship_editor_tab)
+        
+        # Ship Info Group
+        info_group = QGroupBox("Ship Information")
+        info_layout = QVBoxLayout()
+        
+        # Ship ID (read-only)
+        id_layout = QHBoxLayout()
+        id_layout.addWidget(QLabel("Ship ID:"))
+        self.lbl_ship_id = QLabel("N/A")
+        self.lbl_ship_id.setStyleSheet("font-weight: bold;")
+        id_layout.addWidget(self.lbl_ship_id)
+        id_layout.addStretch()
+        info_layout.addLayout(id_layout)
+        
+        # Ship Name
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("Ship Name:"))
+        self.txt_ship_name = QLineEdit()
+        self.txt_ship_name.setPlaceholderText("Enter ship name")
+        name_layout.addWidget(self.txt_ship_name)
+        btn_update_name = QPushButton("Update Name")
+        btn_update_name.clicked.connect(self._on_update_ship_name)
+        name_layout.addWidget(btn_update_name)
+        info_layout.addLayout(name_layout)
+        
+        # Ship Owner
+        owner_layout = QHBoxLayout()
+        owner_layout.addWidget(QLabel("Owner:"))
+        self.txt_ship_owner = QLineEdit()
+        self.txt_ship_owner.setPlaceholderText("Enter owner (leave empty to remove)")
+        owner_layout.addWidget(self.txt_ship_owner)
+        btn_update_owner = QPushButton("Update Owner")
+        btn_update_owner.clicked.connect(self._on_update_ship_owner)
+        owner_layout.addWidget(btn_update_owner)
+        info_layout.addLayout(owner_layout)
+        
+        info_group.setLayout(info_layout)
+        ship_editor_layout.addWidget(info_group)
+        
+        # Ship Size Group
+        size_group = QGroupBox("Ship Size")
+        size_layout = QVBoxLayout()
+        
+        size_info_layout = QHBoxLayout()
+        size_info_layout.addWidget(QLabel("Current Size:"))
+        self.lbl_ship_size_display = QLabel("N/A")
+        self.lbl_ship_size_display.setStyleSheet("font-weight: bold;")
+        size_info_layout.addWidget(self.lbl_ship_size_display)
+        size_info_layout.addStretch()
+        size_layout.addLayout(size_info_layout)
+        
+        size_edit_layout = QHBoxLayout()
+        size_edit_layout.addWidget(QLabel("Width (squares):"))
+        self.spin_ship_w = QSpinBox()
+        self.spin_ship_w.setRange(1, 8)
+        size_edit_layout.addWidget(self.spin_ship_w)
+        size_edit_layout.addWidget(QLabel("Height (squares):"))
+        self.spin_ship_h = QSpinBox()
+        self.spin_ship_h.setRange(1, 8)
+        size_edit_layout.addWidget(self.spin_ship_h)
+        btn_update_size_tab = QPushButton("Update Size")
+        btn_update_size_tab.clicked.connect(self._on_update_ship_size_tab)
+        size_edit_layout.addWidget(btn_update_size_tab)
+        size_edit_layout.addStretch()
+        size_layout.addLayout(size_edit_layout)
+        
+        size_note = QLabel("Note: Max recommended size is 8x8 squares. Changes are applied in memory.")
+        size_note.setStyleSheet("color: gray; font-style: italic;")
+        size_layout.addWidget(size_note)
+        
+        size_group.setLayout(size_layout)
+        ship_editor_layout.addWidget(size_group)
+        
+        # Ship Grid Editor
+        grid_group = QGroupBox("Ship Design Grid")
+        grid_layout = QVBoxLayout()
+        
+        # Grid controls
+        grid_controls = QHBoxLayout()
+        grid_controls.addWidget(QLabel("Grid View:"))
+        self.btn_refresh_grid = QPushButton("Refresh Grid")
+        self.btn_refresh_grid.clicked.connect(self._on_refresh_grid)
+        grid_controls.addWidget(self.btn_refresh_grid)
+        self.lbl_grid_info = QLabel("Grid size: 0x0")
+        grid_controls.addWidget(self.lbl_grid_info)
+        self.lbl_asset_status = QLabel("")
+        grid_controls.addWidget(self.lbl_asset_status)
+        grid_controls.addStretch()
+        grid_layout.addLayout(grid_controls)
+        
+        # Split view: visual editor on left, properties/object list on right
+        grid_split_layout = QHBoxLayout()
+        
+        # Visual ship editor (left side)
+        visual_widget = QWidget()
+        visual_layout = QVBoxLayout(visual_widget)
+        
+        # View controls
+        view_controls = QHBoxLayout()
+        view_controls.addWidget(QLabel("Visual Editor:"))
+        btn_fit_view = QPushButton("Fit to View")
+        btn_fit_view.clicked.connect(self._on_fit_view)
+        view_controls.addWidget(btn_fit_view)
+        btn_reset_view = QPushButton("Reset View")
+        btn_reset_view.clicked.connect(self._on_reset_view)
+        view_controls.addWidget(btn_reset_view)
+        view_controls.addWidget(QLabel("Zoom: Mouse Wheel | Pan: Arrow Keys"))
+        view_controls.addStretch()
+        visual_layout.addLayout(view_controls)
+        
+        # Scroll area for ship view
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMinimumSize(600, 500)
+        self.ship_view = ShipViewWidget()
+        self.ship_view.object_selected.connect(self._on_visual_object_selected)
+        self.ship_view.object_moved.connect(self._on_visual_object_moved)
+        self.ship_view.object_context_menu.connect(self._on_visual_object_context_menu)
+        self.ship_view.empty_space_context_menu.connect(self._on_visual_empty_context_menu)
+        scroll.setWidget(self.ship_view)
+        visual_layout.addWidget(scroll)
+        
+        # Keep table view as backup (hidden by default)
+        self.tbl_ship_grid = QTableWidget()
+        self.tbl_ship_grid.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tbl_ship_grid.setSelectionMode(QTableWidget.SingleSelection)
+        self.tbl_ship_grid.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tbl_ship_grid.customContextMenuRequested.connect(self._on_grid_context_menu)
+        self.tbl_ship_grid.cellClicked.connect(self._on_grid_cell_clicked)
+        self.tbl_ship_grid.hide()  # Hide table view
+        
+        grid_split_layout.addWidget(visual_widget)
+        
+        # Right side: Properties editor and object list
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        
+        # Object Properties Editor
+        props_group = QGroupBox("Object Properties")
+        props_layout = QVBoxLayout()
+        
+        # Entity ID (read-only)
+        id_layout = QHBoxLayout()
+        id_layout.addWidget(QLabel("Entity ID:"))
+        self.lbl_obj_entity_id = QLabel("N/A")
+        self.lbl_obj_entity_id.setStyleSheet("font-weight: bold;")
+        id_layout.addWidget(self.lbl_obj_entity_id)
+        id_layout.addStretch()
+        props_layout.addLayout(id_layout)
+        
+        # Material ID
+        mat_layout = QHBoxLayout()
+        mat_layout.addWidget(QLabel("Material ID:"))
+        self.txt_obj_material = QLineEdit()
+        self.txt_obj_material.setPlaceholderText("Enter material ID")
+        mat_layout.addWidget(self.txt_obj_material)
+        props_layout.addLayout(mat_layout)
+        
+        # Position
+        pos_layout = QHBoxLayout()
+        pos_layout.addWidget(QLabel("Grid Position:"))
+        self.spin_obj_x = QSpinBox()
+        self.spin_obj_x.setRange(0, 200)
+        self.spin_obj_x.setSuffix(" X")
+        pos_layout.addWidget(self.spin_obj_x)
+        self.spin_obj_y = QSpinBox()
+        self.spin_obj_y.setRange(0, 200)
+        self.spin_obj_y.setSuffix(" Y")
+        pos_layout.addWidget(self.spin_obj_y)
+        props_layout.addLayout(pos_layout)
+        
+        # Rotation
+        rot_layout = QHBoxLayout()
+        rot_layout.addWidget(QLabel("Rotation:"))
+        self.cmb_obj_rotation = QComboBox()
+        self.cmb_obj_rotation.addItems(["0°", "90°", "180°", "270°"])
+        rot_layout.addWidget(self.cmb_obj_rotation)
+        rot_layout.addStretch()
+        props_layout.addLayout(rot_layout)
+        
+        # Size
+        size_layout = QHBoxLayout()
+        size_layout.addWidget(QLabel("Size (squares):"))
+        self.spin_obj_width = QSpinBox()
+        self.spin_obj_width.setRange(1, 20)
+        self.spin_obj_width.setSuffix(" W")
+        size_layout.addWidget(self.spin_obj_width)
+        self.spin_obj_height = QSpinBox()
+        self.spin_obj_height.setRange(1, 20)
+        self.spin_obj_height.setSuffix(" H")
+        size_layout.addWidget(self.spin_obj_height)
+        props_layout.addLayout(size_layout)
+        
+        # Update button
+        btn_update_obj = QPushButton("Update Object")
+        btn_update_obj.clicked.connect(self._on_update_object_properties)
+        props_layout.addWidget(btn_update_obj)
+        
+        props_group.setLayout(props_layout)
+        right_layout.addWidget(props_group)
+        
+        # Object list
+        list_group = QGroupBox("Objects on Ship")
+        list_layout = QVBoxLayout()
+        self.lst_ship_objects = QListWidget()
+        self.lst_ship_objects.currentRowChanged.connect(self._on_object_selected)
+        list_layout.addWidget(self.lst_ship_objects)
+        obj_buttons = QHBoxLayout()
+        self.btn_delete_object = QPushButton("Delete Selected")
+        self.btn_delete_object.clicked.connect(self._on_delete_object)
+        obj_buttons.addWidget(self.btn_delete_object)
+        obj_buttons.addStretch()
+        list_layout.addLayout(obj_buttons)
+        list_group.setLayout(list_layout)
+        right_layout.addWidget(list_group)
+        
+        right_layout.setStretch(1, 1)
+        grid_split_layout.addWidget(right_panel)
+        
+        grid_layout.addLayout(grid_split_layout)
+        grid_group.setLayout(grid_layout)
+        ship_editor_layout.addWidget(grid_group)
+        
+        # Check asset loading status after UI is fully initialized
+        # Use QTimer to ensure this runs after the event loop starts
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(100, self._check_asset_loading)
+        
+        ship_editor_layout.addStretch()
+        
+        # Store ship objects and selected object
+        self.current_ship_objects: List[ShipObject] = []
+        self.selected_ship_object: Optional[ShipObject] = None
+        
+        self.tabs.addTab(ship_editor_tab, "Ship Editor")
+
         # Storage tab
         storage_tab = QWidget()
         storage_layout = QVBoxLayout(storage_tab)
@@ -387,6 +655,22 @@ class MainWindow(QMainWindow):
             self.lst_crew.clear()
             self.cmb_containers.clear()
             self.tbl_storage.setRowCount(0)
+            # Clear ship editor
+            self.lbl_ship_id.setText("N/A")
+            self.txt_ship_name.clear()
+            self.txt_ship_owner.clear()
+            self.lbl_ship_size_display.setText("N/A")
+            self.spin_ship_w.setValue(1)
+            self.spin_ship_h.setValue(1)
+            # Clear grid and visual view
+            self.current_ship_objects = []
+            self.selected_ship_object = None
+            self.tbl_ship_grid.setRowCount(0)
+            self.tbl_ship_grid.setColumnCount(0)
+            self.lst_ship_objects.clear()
+            self.lbl_grid_info.setText("Grid size: 0x0")
+            self.ship_view.set_ship_data([], 0, 0)
+            self._clear_object_properties()
             return
         # Owner
         # Minimal owner view: pull <settings owner="..."> if present
@@ -406,6 +690,17 @@ class MainWindow(QMainWindow):
         self.lbl_canvas_size.setText(f"Canvas Size: {ship.sx // 28} W x {ship.sy // 28} H squares")
         self.spin_w.setValue(max(1, ship.sx // 28))
         self.spin_h.setValue(max(1, ship.sy // 28))
+        
+        # Populate ship editor tab
+        self.lbl_ship_id.setText(str(ship.sid))
+        self.txt_ship_name.setText(ship.sname)
+        self.txt_ship_owner.setText(owner if owner != "Unknown" else "")
+        self.lbl_ship_size_display.setText(f"{ship.sx // 28} W x {ship.sy // 28} H squares ({ship.sx}x{ship.sy} pixels)")
+        self.spin_ship_w.setValue(max(1, ship.sx // 28))
+        self.spin_ship_h.setValue(max(1, ship.sy // 28))
+        
+        # Load and display ship objects
+        self._load_ship_objects()
 
         # Crew list for ship
         self.lst_crew.blockSignals(True)
@@ -526,6 +821,504 @@ class MainWindow(QMainWindow):
         update_ship_size(self.save, ship, w, h)
         # Refresh labels
         self._on_ship_changed(self.cmb_ships.currentIndex())
+
+    def _on_update_ship_name(self) -> None:
+        """Update ship name from the Ship Editor tab."""
+        ship = self._current_ship()
+        if not self.save or not ship:
+            QMessageBox.warning(self, "Ship Editor", "No ship selected.")
+            return
+        name = self.txt_ship_name.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Ship Editor", "Ship name cannot be empty.")
+            return
+        update_ship_name(self.save, ship, name)
+        # Update ship combo box
+        self.cmb_ships.blockSignals(True)
+        idx = self.cmb_ships.currentIndex()
+        self.cmb_ships.setItemText(idx, name)
+        self.cmb_ships.blockSignals(False)
+        QMessageBox.information(self, "Ship Editor", "Ship name updated in memory. Use File -> Save to persist.")
+
+    def _on_update_ship_owner(self) -> None:
+        """Update ship owner from the Ship Editor tab."""
+        ship = self._current_ship()
+        if not self.save or not ship:
+            QMessageBox.warning(self, "Ship Editor", "No ship selected.")
+            return
+        owner = self.txt_ship_owner.text().strip()
+        update_ship_owner(self.save, ship, owner if owner else None)
+        # Refresh owner display in top section
+        self._on_ship_changed(self.cmb_ships.currentIndex())
+        QMessageBox.information(self, "Ship Editor", "Ship owner updated in memory. Use File -> Save to persist.")
+
+    def _on_update_ship_size_tab(self) -> None:
+        """Update ship size from the Ship Editor tab."""
+        ship = self._current_ship()
+        if not self.save or not ship:
+            QMessageBox.warning(self, "Ship Editor", "No ship selected.")
+            return
+        w = self.spin_ship_w.value()
+        h = self.spin_ship_h.value()
+        update_ship_size(self.save, ship, w, h)
+        # Refresh all ship displays
+        self._on_ship_changed(self.cmb_ships.currentIndex())
+        QMessageBox.information(self, "Ship Editor", "Ship size updated in memory. Use File -> Save to persist.")
+
+    def _load_ship_objects(self) -> None:
+        """Load ship objects and populate the grid and list."""
+        ship = self._current_ship()
+        if not self.save or not ship:
+            self.current_ship_objects = []
+            self.tbl_ship_grid.setRowCount(0)
+            self.tbl_ship_grid.setColumnCount(0)
+            self.lst_ship_objects.clear()
+            self.lbl_grid_info.setText("Grid size: 0x0")
+            return
+        
+        # Load objects
+        self.current_ship_objects = load_ship_objects(self.save, ship.sid)
+        
+        # Get grid size
+        grid_w, grid_h = get_ship_grid_size(self.save, ship.sid)
+        if grid_w == 0 or grid_h == 0:
+            grid_w = max(1, ship.sx // 28)
+            grid_h = max(1, ship.sy // 28)
+        
+        # Update visual view
+        self.ship_view.set_ship_data(self.current_ship_objects, grid_w, grid_h)
+        if self.selected_ship_object:
+            self.ship_view.set_selected_object(self.selected_ship_object)
+        
+        # Populate object list
+        self.lst_ship_objects.blockSignals(True)
+        self.lst_ship_objects.clear()
+        for obj in sorted(self.current_ship_objects, key=lambda o: o.entity_id):
+            display_name = f"ID: {obj.entity_id}"
+            if obj.obj_id:
+                display_name += f" (Material: {obj.obj_id})"
+            item = QListWidgetItem(display_name)
+            item.setData(Qt.UserRole, obj.entity_id)
+            self.lst_ship_objects.addItem(item)
+        self.lst_ship_objects.blockSignals(False)
+        
+        # Render grid (for table view backup)
+        self._render_ship_grid()
+        
+        self.lbl_grid_info.setText(f"Grid size: {grid_w}x{grid_h} squares ({len(self.current_ship_objects)} objects)")
+    
+    def _render_ship_grid(self) -> None:
+        """Render the ship grid with objects."""
+        ship = self._current_ship()
+        if not ship or not self.save:
+            return
+        
+        # Get actual grid size from entities
+        grid_w, grid_h = get_ship_grid_size(self.save, ship.sid)
+        if grid_w == 0 or grid_h == 0:
+            # Fallback to ship size
+            grid_w = max(1, ship.sx // 28)
+            grid_h = max(1, ship.sy // 28)
+        
+        self.tbl_ship_grid.blockSignals(True)
+        self.tbl_ship_grid.setRowCount(grid_h)
+        self.tbl_ship_grid.setColumnCount(grid_w)
+        
+        # Create a map of grid positions to objects
+        grid_map: dict[tuple[int, int], ShipObject] = {}
+        for obj in self.current_ship_objects:
+            grid_x = obj.x // 28
+            grid_y = obj.y // 28
+            # Mark all cells occupied by this object
+            for dy in range(obj.height):
+                for dx in range(obj.width):
+                    gx = grid_x + dx
+                    gy = grid_y + dy
+                    if 0 <= gx < grid_w and 0 <= gy < grid_h:
+                        grid_map[(gx, gy)] = obj
+        
+        # Populate grid cells
+        for y in range(grid_h):
+            for x in range(grid_w):
+                item = QTableWidgetItem()
+                obj = grid_map.get((x, y))
+                if obj:
+                    # Cell has an object
+                    cell_text = f"{obj.entity_id}"
+                    if obj.obj_id:
+                        cell_text += f"\nM:{obj.obj_id}"
+                    item.setText(cell_text)
+                    item.setBackground(Qt.lightGray)
+                    item.setData(Qt.UserRole, obj.entity_id)
+                else:
+                    # Empty cell
+                    item.setText("")
+                    item.setBackground(Qt.white)
+                    item.setData(Qt.UserRole, None)
+                item.setTextAlignment(Qt.AlignCenter)
+                self.tbl_ship_grid.setItem(y, x, item)
+        
+        # Set column headers (x coordinates)
+        self.tbl_ship_grid.setHorizontalHeaderLabels([str(i) for i in range(grid_w)])
+        # Set row headers (y coordinates)
+        self.tbl_ship_grid.setVerticalHeaderLabels([str(i) for i in range(grid_h)])
+        
+        # Resize cells to be square-ish
+        self.tbl_ship_grid.resizeColumnsToContents()
+        self.tbl_ship_grid.resizeRowsToContents()
+        
+        self.tbl_ship_grid.blockSignals(False)
+    
+    def _check_asset_loading(self) -> None:
+        """Check if assets are loaded and update status."""
+        try:
+            # Try both import styles (for package and direct execution)
+            try:
+                from .asset_loader import get_asset_loader
+            except ImportError:
+                from asset_loader import get_asset_loader
+            
+            loader = get_asset_loader()
+            if loader:
+                if loader.jar_file and len(loader.texture_regions) > 0:
+                    self.lbl_asset_status.setText(f"✓ Assets loaded ({len(loader.texture_regions)} regions)")
+                    self.lbl_asset_status.setStyleSheet("color: green;")
+                elif loader.jar_path and Path(loader.jar_path).exists():
+                    # JAR exists but not loaded - try to load it
+                    if loader.open_jar():
+                        loader.load_texture_regions()
+                        if loader.jar_file and len(loader.texture_regions) > 0:
+                            self.lbl_asset_status.setText(f"✓ Assets loaded ({len(loader.texture_regions)} regions)")
+                            self.lbl_asset_status.setStyleSheet("color: green;")
+                        else:
+                            self.lbl_asset_status.setText("⚠ Failed to load texture regions")
+                            self.lbl_asset_status.setStyleSheet("color: orange;")
+                    else:
+                        self.lbl_asset_status.setText("⚠ Could not open JAR file")
+                        self.lbl_asset_status.setStyleSheet("color: orange;")
+                else:
+                    self.lbl_asset_status.setText("⚠ JAR file not found")
+                    self.lbl_asset_status.setStyleSheet("color: orange;")
+            else:
+                self.lbl_asset_status.setText("⚠ Assets not found")
+                self.lbl_asset_status.setStyleSheet("color: orange;")
+        except Exception as e:
+            self.lbl_asset_status.setText(f"⚠ Error: {str(e)[:30]}")
+            self.lbl_asset_status.setStyleSheet("color: orange;")
+            import traceback
+            print(f"Asset loading check error: {e}")
+            traceback.print_exc()
+    
+    def _on_refresh_grid(self) -> None:
+        """Refresh the ship grid view."""
+        self._load_ship_objects()
+        # Clear sprite cache to force reload
+        if hasattr(self.ship_view, 'sprite_cache'):
+            self.ship_view.sprite_cache.clear()
+        self.ship_view.update()
+    
+    def _on_fit_view(self) -> None:
+        """Fit ship to view."""
+        self.ship_view.fit_to_view()
+    
+    def _on_reset_view(self) -> None:
+        """Reset zoom and pan."""
+        self.ship_view.reset_view()
+    
+    def _on_visual_object_selected(self, obj: ShipObject) -> None:
+        """Handle object selection from visual editor."""
+        self.selected_ship_object = obj
+        self._populate_object_properties(obj)
+        # Select in list
+        for i in range(self.lst_ship_objects.count()):
+            item = self.lst_ship_objects.item(i)
+            if item and item.data(Qt.UserRole) == obj.entity_id:
+                self.lst_ship_objects.setCurrentRow(i)
+                break
+    
+    def _on_visual_object_moved(self, obj: ShipObject, grid_x: int, grid_y: int) -> None:
+        """Handle object movement from visual editor."""
+        ship = self._current_ship()
+        if not self.save or not ship:
+            return
+        
+        update_ship_object_position(self.save, ship.sid, obj.entity_id, grid_x, grid_y)
+        # Update in-memory model
+        obj.x = grid_x * 28
+        obj.y = grid_y * 28
+        # Refresh view
+        self._load_ship_objects()
+    
+    def _on_visual_object_context_menu(self, obj: ShipObject, screen_pos: QPoint) -> None:
+        """Handle context menu on object in visual editor."""
+        menu = QMenu(self)
+        act_delete = menu.addAction("Delete Object")
+        act_delete.triggered.connect(lambda: self._delete_visual_object(obj))
+        menu.exec(screen_pos)
+    
+    def _on_visual_empty_context_menu(self, grid_pos: Tuple[int, int], screen_pos: QPoint) -> None:
+        """Handle context menu on empty space in visual editor."""
+        menu = QMenu(self)
+        act_add = menu.addAction("Add New Object")
+        act_add.triggered.connect(lambda: self._add_visual_object(grid_pos[0], grid_pos[1]))
+        menu.exec(screen_pos)
+    
+    def _delete_visual_object(self, obj: ShipObject) -> None:
+        """Delete object from visual editor."""
+        ship = self._current_ship()
+        if not self.save or not ship:
+            return
+        
+        reply = QMessageBox.question(
+            self,
+            "Delete Object",
+            f"Are you sure you want to delete object ID {obj.entity_id}?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            remove_ship_object(self.save, ship.sid, obj.entity_id)
+            self._load_ship_objects()
+            QMessageBox.information(self, "Ship Editor", "Object deleted in memory. Use File -> Save to persist.")
+    
+    def _add_visual_object(self, grid_x: int, grid_y: int) -> None:
+        """Add object at grid position in visual editor."""
+        ship = self._current_ship()
+        if not self.save or not ship:
+            return
+        
+        # Prompt for material ID
+        material_id, ok = QInputDialog.getText(
+            self, "Add Object", "Enter Material ID:", text=""
+        )
+        if not ok or not material_id.strip():
+            return
+        
+        try:
+            material_id = material_id.strip()
+            rotation = 0
+            
+            new_entity_id = create_ship_object(self.save, ship.sid, material_id, grid_x, grid_y, rotation)
+            self._load_ship_objects()
+            QMessageBox.information(self, "Ship Editor", f"Object created (ID: {new_entity_id}) in memory. Use File -> Save to persist.")
+        except Exception as ex:
+            QMessageBox.critical(self, "Error", f"Error creating object: {ex}")
+    
+    def _on_grid_cell_clicked(self, row: int, col: int) -> None:
+        """Handle grid cell click - select the object if any."""
+        item = self.tbl_ship_grid.item(row, col)
+        if not item:
+            return
+        entity_id = item.data(Qt.UserRole)
+        if entity_id is not None:
+            # Find and select the object in the list
+            for i in range(self.lst_ship_objects.count()):
+                list_item = self.lst_ship_objects.item(i)
+                if list_item and list_item.data(Qt.UserRole) == entity_id:
+                    self.lst_ship_objects.setCurrentRow(i)
+                    break
+        else:
+            # Empty cell - clear selection
+            self._clear_object_properties()
+            self.lst_ship_objects.setCurrentRow(-1)
+    
+    def _on_grid_context_menu(self, position) -> None:
+        """Handle right-click context menu on grid."""
+        item = self.tbl_ship_grid.itemAt(position)
+        if not item:
+            return
+        
+        row = item.row()
+        col = item.column()
+        entity_id = item.data(Qt.UserRole)
+        
+        menu = QMenu(self)
+        if entity_id is not None:
+            # Object exists - can delete
+            act_delete = menu.addAction("Delete Object")
+            act_delete.triggered.connect(lambda: self._delete_object_at_cell(row, col))
+        else:
+            # Empty cell - can add
+            act_add = menu.addAction("Add New Object")
+            act_add.triggered.connect(lambda: self._add_object_at_cell(row, col))
+        
+        menu.exec(self.tbl_ship_grid.mapToGlobal(position))
+    
+    def _on_object_selected(self, row: int) -> None:
+        """Handle object list selection - populate properties editor."""
+        if row < 0:
+            self._clear_object_properties()
+            return
+        
+        item = self.lst_ship_objects.item(row)
+        if not item:
+            return
+        
+        entity_id = item.data(Qt.UserRole)
+        obj = next((o for o in self.current_ship_objects if o.entity_id == entity_id), None)
+        if obj:
+            self.selected_ship_object = obj
+            self._populate_object_properties(obj)
+        else:
+            self._clear_object_properties()
+    
+    def _populate_object_properties(self, obj: ShipObject) -> None:
+        """Populate the object properties editor with object data."""
+        self.selected_ship_object = obj
+        self.lbl_obj_entity_id.setText(str(obj.entity_id))
+        self.txt_obj_material.setText(str(obj.obj_id) if obj.obj_id else "")
+        grid_x = obj.x // 28
+        grid_y = obj.y // 28
+        self.spin_obj_x.setValue(grid_x)
+        self.spin_obj_y.setValue(grid_y)
+        
+        # Set rotation
+        rot_index = 0
+        if obj.rotation == 90:
+            rot_index = 1
+        elif obj.rotation == 180:
+            rot_index = 2
+        elif obj.rotation == 270:
+            rot_index = 3
+        self.cmb_obj_rotation.setCurrentIndex(rot_index)
+        
+        self.spin_obj_width.setValue(obj.width)
+        self.spin_obj_height.setValue(obj.height)
+        
+        # Update visual view selection
+        self.ship_view.set_selected_object(obj)
+    
+    def _clear_object_properties(self) -> None:
+        """Clear the object properties editor."""
+        self.selected_ship_object = None
+        self.lbl_obj_entity_id.setText("N/A")
+        self.txt_obj_material.clear()
+        self.spin_obj_x.setValue(0)
+        self.spin_obj_y.setValue(0)
+        self.cmb_obj_rotation.setCurrentIndex(0)
+        self.spin_obj_width.setValue(1)
+        self.spin_obj_height.setValue(1)
+    
+    def _on_update_object_properties(self) -> None:
+        """Update the selected object's properties."""
+        if not self.selected_ship_object:
+            QMessageBox.warning(self, "Ship Editor", "No object selected.")
+            return
+        
+        ship = self._current_ship()
+        if not self.save or not ship:
+            return
+        
+        try:
+            material_id = self.txt_obj_material.text().strip()
+            if not material_id:
+                QMessageBox.warning(self, "Ship Editor", "Material ID is required.")
+                return
+            
+            grid_x = self.spin_obj_x.value()
+            grid_y = self.spin_obj_y.value()
+            rotation_idx = self.cmb_obj_rotation.currentIndex()
+            rotation = [0, 90, 180, 270][rotation_idx]
+            width = self.spin_obj_width.value()
+            height = self.spin_obj_height.value()
+            
+            update_ship_object_properties(
+                self.save, ship.sid, self.selected_ship_object.entity_id,
+                material_id, grid_x, grid_y, rotation, width, height
+            )
+            
+            # Update in-memory model
+            self.selected_ship_object.obj_id = material_id
+            self.selected_ship_object.x = grid_x * 28
+            self.selected_ship_object.y = grid_y * 28
+            self.selected_ship_object.rotation = rotation
+            self.selected_ship_object.width = width
+            self.selected_ship_object.height = height
+            
+            self._load_ship_objects()
+            # Update visual view selection
+            self.ship_view.set_selected_object(self.selected_ship_object)
+            QMessageBox.information(self, "Ship Editor", "Object updated in memory. Use File -> Save to persist.")
+        except Exception as ex:
+            QMessageBox.critical(self, "Error", f"Error updating object: {ex}")
+    
+    def _add_object_at_cell(self, row: int, col: int) -> None:
+        """Add a new object at the specified grid cell."""
+        ship = self._current_ship()
+        if not self.save or not ship:
+            QMessageBox.warning(self, "Ship Editor", "No ship selected.")
+            return
+        
+        # Prompt for material ID
+        material_id, ok = QInputDialog.getText(
+            self, "Add Object", "Enter Material ID:", text=""
+        )
+        if not ok or not material_id.strip():
+            return
+        
+        try:
+            material_id = material_id.strip()
+            rotation = 0  # Default rotation
+            
+            new_entity_id = create_ship_object(self.save, ship.sid, material_id, col, row, rotation)
+            
+            self._load_ship_objects()
+            QMessageBox.information(self, "Ship Editor", f"Object created (ID: {new_entity_id}) in memory. Use File -> Save to persist.")
+        except Exception as ex:
+            QMessageBox.critical(self, "Error", f"Error creating object: {ex}")
+    
+    def _delete_object_at_cell(self, row: int, col: int) -> None:
+        """Delete object at the specified grid cell."""
+        item = self.tbl_ship_grid.item(row, col)
+        if not item:
+            return
+        
+        entity_id = item.data(Qt.UserRole)
+        if entity_id is None:
+            return
+        
+        ship = self._current_ship()
+        if not self.save or not ship:
+            return
+        
+        reply = QMessageBox.question(
+            self,
+            "Delete Object",
+            f"Are you sure you want to delete object ID {entity_id}?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            remove_ship_object(self.save, ship.sid, entity_id)
+            self._load_ship_objects()
+            QMessageBox.information(self, "Ship Editor", "Object deleted in memory. Use File -> Save to persist.")
+    
+    def _on_delete_object(self) -> None:
+        """Delete the selected object from the ship."""
+        if not self.selected_ship_object:
+            QMessageBox.warning(self, "Ship Editor", "No object selected.")
+            return
+        
+        ship = self._current_ship()
+        if not self.save or not ship:
+            return
+        
+        entity_id = self.selected_ship_object.entity_id
+        reply = QMessageBox.question(
+            self,
+            "Delete Object",
+            f"Are you sure you want to delete object ID {entity_id}?\n"
+            f"This action cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            remove_ship_object(self.save, ship.sid, entity_id)
+            self._load_ship_objects()
+            QMessageBox.information(self, "Ship Editor", "Object deleted in memory. Use File -> Save to persist.")
 
     def _current_crew_member(self) -> Optional[Character]:
         """Get the currently selected crew member."""

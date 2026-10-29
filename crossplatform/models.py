@@ -49,6 +49,19 @@ class StorageContainer:
 
 
 @dataclass
+class ShipObject:
+    """Represents an object/entity placed on the ship grid."""
+    entity_id: int
+    obj_id: Optional[str] = None
+    x: int = 0  # Position in pixels
+    y: int = 0  # Position in pixels
+    rotation: int = 0  # Rotation in degrees (0, 90, 180, 270)
+    width: int = 1  # Width in grid squares
+    height: int = 1  # Height in grid squares
+    xml_element: Optional[object] = None  # Reference to lxml element
+
+
+@dataclass
 class Ship:
     sid: int
     sname: str

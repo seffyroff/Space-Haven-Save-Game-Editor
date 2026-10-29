@@ -3,11 +3,11 @@ from typing import List, Optional
 from lxml import etree
 
 try:
-    from .models import SaveData, Ship, Character, DataProp, RelationshipInfo, StorageContainer, StorageItem
+    from .models import SaveData, Ship, Character, DataProp, RelationshipInfo, StorageContainer, StorageItem, ShipObject
     from .id_collections import DefaultSkillIDs, DefaultTraitIDs, DefaultAttributeIDs, DefaultStorageIDs, ConditionsIDs
 except ImportError:
     # Fallback for when running as standalone (PyInstaller)
-    from models import SaveData, Ship, Character, DataProp, RelationshipInfo, StorageContainer, StorageItem
+    from models import SaveData, Ship, Character, DataProp, RelationshipInfo, StorageContainer, StorageItem, ShipObject
     from id_collections import DefaultSkillIDs, DefaultTraitIDs, DefaultAttributeIDs, DefaultStorageIDs, ConditionsIDs
 
 
@@ -59,6 +59,28 @@ def load_save(path: str) -> SaveData:
         sname = ship_el.get("sname") or "Unnamed Ship"
         sx = int(ship_el.get("sx", "0") or 0)
         sy = int(ship_el.get("sy", "0") or 0)
+        
+        # Calculate actual ship size from entity coordinates
+        # The sx/sy attributes may not reflect the actual ship size
+        max_x = 0
+        max_y = 0
+        for entity_el in ship_el.findall(".//e"):
+            try:
+                x = int(entity_el.get("x", "0") or 0)
+                y = int(entity_el.get("y", "0") or 0)
+                max_x = max(max_x, x)
+                max_y = max(max_y, y)
+            except (ValueError, AttributeError):
+                continue
+        
+        # If we found entities, use the calculated size (add 1 since coordinates are 0-based)
+        # Otherwise use the sx/sy from attributes
+        if max_x > 0 or max_y > 0:
+            # Add 28 pixels (1 square) to account for the last entity
+            sx = max_x + 28
+            sy = max_y + 28
+        # If calculated size is still 0, fall back to attribute values
+        
         if not any(s.sid == sid for s in ships):
             ships.append(Ship(sid=sid, sname=sname, sx=sx, sy=sy))
     save.ships = ships
@@ -289,6 +311,237 @@ def update_ship_size(save: SaveData, ship: Ship, squares_w: int, squares_h: int)
     ship_el.set("sy", str(sy))
     ship.sx = sx
     ship.sy = sy
+
+
+def update_ship_name(save: SaveData, ship: Ship, name: str) -> None:
+    """Update a ship's name in XML."""
+    assert save.xml_doc is not None
+    root = save.xml_doc.getroot()
+    ship_el = root.find(f".//ship[@sid='{ship.sid}']")
+    if ship_el is None:
+        return
+    ship_el.set("sname", name)
+    ship.sname = name
+
+
+def update_ship_owner(save: SaveData, ship: Ship, owner: Optional[str]) -> None:
+    """Update a ship's owner in XML."""
+    assert save.xml_doc is not None
+    root = save.xml_doc.getroot()
+    ship_el = root.find(f".//ship[@sid='{ship.sid}']")
+    if ship_el is None:
+        return
+    settings = ship_el.find("settings")
+    if settings is None:
+        if owner is None or owner.strip() == "":
+            return  # Nothing to do
+        settings = etree.Element("settings")
+        ship_el.append(settings)
+    if owner is None or owner.strip() == "":
+        # Remove owner attribute if it exists
+        if settings.get("owner") is not None:
+            settings.attrib.pop("owner", None)
+    else:
+        settings.set("owner", owner.strip())
+
+
+def get_ship_grid_size(save: SaveData, ship_sid: int) -> tuple[int, int]:
+    """Get the actual grid size of a ship by examining all entities."""
+    assert save.xml_doc is not None
+    root = save.xml_doc.getroot()
+    ship_el = root.find(f".//ship[@sid='{ship_sid}']")
+    if ship_el is None:
+        return (0, 0)
+    
+    max_x = 0
+    max_y = 0
+    for entity_el in ship_el.findall(".//e"):
+        try:
+            x = int(entity_el.get("x", "0") or 0)
+            y = int(entity_el.get("y", "0") or 0)
+            max_x = max(max_x, x)
+            max_y = max(max_y, y)
+        except (ValueError, AttributeError):
+            continue
+    
+    # Convert to grid squares (round up)
+    grid_w = (max_x + 28) // 28 if max_x > 0 else 1
+    grid_h = (max_y + 28) // 28 if max_y > 0 else 1
+    return (grid_w, grid_h)
+
+
+def load_ship_objects(save: SaveData, ship_sid: int) -> List[ShipObject]:
+    """Load all objects/entities from a ship."""
+    assert save.xml_doc is not None
+    root = save.xml_doc.getroot()
+    ship_el = root.find(f".//ship[@sid='{ship_sid}']")
+    if ship_el is None:
+        return []
+    
+    objects: List[ShipObject] = []
+    # Look for entity elements (<e>) within the ship
+    for entity_el in ship_el.findall(".//e"):
+        try:
+            # Entities use 'id' attribute, not 'entId'
+            ent_id_str = entity_el.get("id")
+            if not ent_id_str:
+                continue  # Skip entities without id (walls/floors with m="-2")
+            ent_id = int(ent_id_str)
+            if ent_id == 0:
+                continue
+            
+            # Skip floor/wall tiles (m="-2" typically indicates background tiles)
+            m_attr = entity_el.get("m")
+            if m_attr == "-2":
+                continue
+            
+            # Get object type/material ID (m attribute)
+            obj_id = entity_el.get("m")  # Material/object type ID
+            
+            # Get position (in pixels)
+            x = int(entity_el.get("x", "0") or 0)
+            y = int(entity_el.get("y", "0") or 0)
+            
+            # Get rotation if present (format: "R0", "R90", etc.)
+            rot_str = entity_el.get("rot", "R0")
+            rotation = 0
+            if rot_str.startswith("R"):
+                try:
+                    rotation = int(rot_str[1:])
+                except ValueError:
+                    rotation = 0
+            
+            # Try to determine size from attributes
+            width = 1
+            height = 1
+            # Some objects might have size attributes
+            if entity_el.get("width"):
+                width = max(1, int(entity_el.get("width") or 1) // 28)
+            if entity_el.get("height"):
+                height = max(1, int(entity_el.get("height") or 1) // 28)
+            # Check for height attribute (ht might be in pixels)
+            if entity_el.get("ht"):
+                ht = int(entity_el.get("ht") or 0)
+                if ht > 0:
+                    height = max(1, ht // 28)
+            
+            obj = ShipObject(
+                entity_id=ent_id,
+                obj_id=obj_id,
+                x=x,
+                y=y,
+                rotation=rotation,
+                width=max(1, width),
+                height=max(1, height),
+                xml_element=entity_el
+            )
+            objects.append(obj)
+        except (ValueError, AttributeError):
+            continue
+    
+    return objects
+
+
+def update_ship_object_position(save: SaveData, ship_sid: int, entity_id: int, grid_x: int, grid_y: int) -> None:
+    """Update an object's position on the ship grid (grid coordinates converted to pixels)."""
+    assert save.xml_doc is not None
+    root = save.xml_doc.getroot()
+    ship_el = root.find(f".//ship[@sid='{ship_sid}']")
+    if ship_el is None:
+        return
+    
+    entity_el = ship_el.find(f".//e[@id='{entity_id}']")
+    if entity_el is None:
+        return
+    
+    # Convert grid coordinates to pixels (28 pixels per square)
+    pixel_x = grid_x * 28
+    pixel_y = grid_y * 28
+    entity_el.set("x", str(pixel_x))
+    entity_el.set("y", str(pixel_y))
+
+
+def remove_ship_object(save: SaveData, ship_sid: int, entity_id: int) -> None:
+    """Remove an object from the ship."""
+    assert save.xml_doc is not None
+    root = save.xml_doc.getroot()
+    ship_el = root.find(f".//ship[@sid='{ship_sid}']")
+    if ship_el is None:
+        return
+    
+    entity_el = ship_el.find(f".//e[@id='{entity_id}']")
+    if entity_el is not None:
+        parent = entity_el.getparent()
+        if parent is not None:
+            parent.remove(entity_el)
+
+
+def update_ship_object_properties(save: SaveData, ship_sid: int, entity_id: int, material_id: Optional[str], grid_x: int, grid_y: int, rotation: int, width: int, height: int) -> None:
+    """Update all properties of a ship object."""
+    assert save.xml_doc is not None
+    root = save.xml_doc.getroot()
+    ship_el = root.find(f".//ship[@sid='{ship_sid}']")
+    if ship_el is None:
+        return
+    
+    entity_el = ship_el.find(f".//e[@id='{entity_id}']")
+    if entity_el is None:
+        return
+    
+    # Update position
+    pixel_x = grid_x * 28
+    pixel_y = grid_y * 28
+    entity_el.set("x", str(pixel_x))
+    entity_el.set("y", str(pixel_y))
+    
+    # Update material ID
+    if material_id:
+        entity_el.set("m", str(material_id))
+    
+    # Update rotation
+    rot_str = f"R{rotation}"
+    entity_el.set("rot", rot_str)
+    
+    # Note: width/height might not be directly stored in XML, but we track them in our model
+
+
+def create_ship_object(save: SaveData, ship_sid: int, material_id: str, grid_x: int, grid_y: int, rotation: int = 0) -> int:
+    """Create a new object on the ship. Returns the new entity ID."""
+    assert save.xml_doc is not None
+    root = save.xml_doc.getroot()
+    ship_el = root.find(f".//ship[@sid='{ship_sid}']")
+    if ship_el is None:
+        raise ValueError(f"Ship with sid {ship_sid} not found")
+    
+    # Get next ID from idCounter
+    id_counter_attr = root.get("idCounter")
+    if id_counter_attr is None:
+        raise ValueError("Cannot find 'idCounter' attribute on root <game> element.")
+    try:
+        next_id = int(id_counter_attr) + 1
+    except ValueError:
+        raise ValueError(f"Cannot parse 'idCounter' value '{id_counter_attr}'.")
+    root.set("idCounter", str(next_id))
+    
+    # Create new entity element
+    entity_el = etree.Element("e")
+    entity_el.set("id", str(next_id))
+    entity_el.set("m", str(material_id))
+    
+    # Set position
+    pixel_x = grid_x * 28
+    pixel_y = grid_y * 28
+    entity_el.set("x", str(pixel_x))
+    entity_el.set("y", str(pixel_y))
+    
+    # Set rotation
+    rot_str = f"R{rotation}"
+    entity_el.set("rot", rot_str)
+    
+    # Add to ship
+    ship_el.append(entity_el)
+    
+    return next_id
 
 
 def update_character_attribute(save: SaveData, character: Character, attr_id: int, value: int) -> None:
